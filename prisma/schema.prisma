@@ -1,0 +1,145 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Person {
+  id         String    @id @default(cuid())
+  name       String?
+  isReviewer Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  accounts   Account[]
+  companies  Company[]
+}
+
+model Account {
+  id        String    @id @default(cuid())
+  personId  String
+  person    Person    @relation(fields: [personId], references: [id])
+  points    Float     @default(10000)
+  createdAt DateTime  @default(now())
+  holdings  Holding[]
+  buys      Trade[]   @relation("TradeBuyer")
+  sells     Trade[]   @relation("TradeSeller")
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model Company {
+  id           String             @id @default(cuid())
+  ownerId      String
+  owner        Person             @relation(fields: [ownerId], references: [id])
+  name         String
+  description  String
+  verification VerificationStatus @default(PENDING)
+  createdAt    DateTime           @default(now())
+  chapters     Chapter[]
+}
+
+enum ChapterStatus {
+  IN_PROGRESS
+  FIRST_ROLL_FAILED
+  SECOND_ROLL_IN_PROGRESS
+  ENDED
+}
+
+model Chapter {
+  id                   String         @id @default(cuid())
+  companyId            String
+  company              Company        @relation(fields: [companyId], references: [id])
+  title                String
+  body                 String
+  status               ChapterStatus  @default(IN_PROGRESS)
+  deadline             DateTime
+  remainingEdits       Int            @default(3)
+  secondRollPrice      Float?
+  secondRollPriceNote  String?
+  secondRollMinRaise   Float?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  milestones           Milestone[]
+  holdings             Holding[]
+  trades               Trade[]
+  announcements        Announcement[]
+}
+
+enum MilestoneVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model Milestone {
+  id                 String                       @id @default(cuid())
+  chapterId          String
+  chapter            Chapter                      @relation(fields: [chapterId], references: [id])
+  description        String
+  isDecisiveVictory  Boolean                      @default(false)
+  plannedAnnounceAt  DateTime
+  verificationStatus MilestoneVerificationStatus  @default(PENDING)
+  reviewFileUrl      String?
+  verifiedAt         DateTime?
+  createdAt          DateTime                     @default(now())
+}
+
+enum ChapterStage {
+  FIRST_ROLL
+  SECOND_ROLL
+}
+
+model Holding {
+  id                String       @id @default(cuid())
+  accountId         String
+  account           Account      @relation(fields: [accountId], references: [id])
+  chapterId         String
+  chapter           Chapter      @relation(fields: [chapterId], references: [id])
+  amount            Float
+  purchaseStage     ChapterStage
+  timeWeight        Float
+  purchasedAt       DateTime     @default(now())
+  trades            Trade[]
+}
+
+enum TradeType {
+  BUY
+  EXIT
+  RESELL
+}
+
+model Trade {
+  id             String    @id @default(cuid())
+  chapterId      String
+  chapter        Chapter   @relation(fields: [chapterId], references: [id])
+  holdingId      String?
+  holding        Holding?  @relation(fields: [holdingId], references: [id])
+  type           TradeType
+  buyerAccountId String?
+  buyerAccount   Account?  @relation("TradeBuyer", fields: [buyerAccountId], references: [id])
+  sellerAccountId String?
+  sellerAccount  Account?  @relation("TradeSeller", fields: [sellerAccountId], references: [id])
+  amount         Float
+  price          Float
+  timeWeight     Float
+  createdAt      DateTime  @default(now())
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  chapterId String
+  chapter   Chapter  @relation(fields: [chapterId], references: [id])
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+  publishAt DateTime
+}
