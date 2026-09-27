@@ -23,6 +23,8 @@ model Account {
   id        String    @id @default(cuid())
   personId  String
   person    Person    @relation(fields: [personId], references: [id])
+  email     String    @unique
+  name      String?
   points    Float     @default(10000)
   createdAt DateTime  @default(now())
   holdings  Holding[]

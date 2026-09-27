@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { calcInfoValue, calcMedian } from "@/lib/rules";
+import { getCurrentAccount } from "@/lib/actions/auth";
+import { buy, exitHolding, resell } from "@/lib/actions/trade";
+import { checkChapterDeadline } from "@/lib/actions/chapterLifecycle";
 
 export default async function ChapterDetailPage({
   params,
@@ -9,20 +12,29 @@ export default async function ChapterDetailPage({
 }) {
   const { id } = await params;
 
-  const chapter = await prisma.chapter.findUnique({
-    where: { id },
-    include: {
-      company: true,
-      milestones: { orderBy: { plannedAnnounceAt: "asc" } },
-      holdings: true,
-    },
-  });
+  await checkChapterDeadline(id);
+
+  const [chapter, account] = await Promise.all([
+    prisma.chapter.findUnique({
+      where: { id },
+      include: {
+        company: true,
+        milestones: { orderBy: { plannedAnnounceAt: "asc" } },
+        holdings: true,
+      },
+    }),
+    getCurrentAccount(),
+  ]);
 
   if (!chapter) notFound();
 
   const headcount = new Set(chapter.holdings.map((h) => h.accountId)).size;
   const medianFunding = calcMedian(chapter.holdings.map((h) => h.amount));
   const infoValue = calcInfoValue(headcount, medianFunding);
+  const myHoldings = account
+    ? chapter.holdings.filter((h) => h.accountId === account.id)
+    : [];
+  const canBuy = chapter.status === "IN_PROGRESS" || chapter.status === "SECOND_ROLL_IN_PROGRESS";
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-12">
@@ -68,30 +80,101 @@ export default async function ChapterDetailPage({
       </div>
 
       <div className="flex items-center justify-between text-sm text-zinc-500">
-        <span>期限：{chapter.deadline.toLocaleDateString()}</span>
+        <span>期限：{chapter.deadline.toLocaleDateString(undefined, { timeZone: "UTC" })}</span>
         <span>剩余修改次数：{chapter.remainingEdits}</span>
       </div>
 
-      <div className="flex gap-3">
-        <button className="flex-1 rounded-full bg-black px-5 py-2.5 text-white dark:bg-white dark:text-black">
-          买入
-        </button>
-        <button className="flex-1 rounded-full border border-zinc-300 px-5 py-2.5 dark:border-zinc-700">
-          退出
-        </button>
-        <button className="flex-1 rounded-full border border-zinc-300 px-5 py-2.5 dark:border-zinc-700">
-          转卖
-        </button>
-      </div>
+      {!account && (
+        <p className="text-sm text-zinc-500">
+          请先<a href="/register" className="underline">注册 / 登录</a>后买入。
+        </p>
+      )}
+
+      {account && canBuy && (
+        <form action={buy} className="flex items-end gap-3">
+          <input type="hidden" name="chapterId" value={chapter.id} />
+          <label className="flex flex-1 flex-col gap-1 text-sm">
+            <span className="text-zinc-600 dark:text-zinc-400">
+              买入数量（当前积分：{account.points}）
+            </span>
+            <input
+              name="amount"
+              type="number"
+              min={1}
+              step={1}
+              required
+              className="rounded border border-zinc-300 p-2 dark:border-zinc-700 dark:bg-zinc-950"
+            />
+          </label>
+          <button className="rounded-full bg-black px-5 py-2.5 text-white dark:bg-white dark:text-black">
+            买入
+          </button>
+        </form>
+      )}
+
+      {account && !canBuy && (
+        <p className="text-sm text-zinc-500">该 Chapter 当前状态不可买入。</p>
+      )}
+
+      {account && myHoldings.length > 0 && (
+        <div>
+          <h2 className="text-lg font-medium">我在本 Chapter 的持仓</h2>
+          <div className="mt-3 flex flex-col gap-3">
+            {myHoldings.map((h) => (
+              <div
+                key={h.id}
+                className="flex flex-col gap-2 rounded border border-zinc-200 p-3 text-sm dark:border-zinc-800"
+              >
+                <div className="flex justify-between text-zinc-600 dark:text-zinc-400">
+                  <span>数量：{h.amount}</span>
+                  <span>阶段：{h.purchaseStage}</span>
+                  <span>时间权重：{h.timeWeight.toFixed(2)}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <form action={exitHolding}>
+                    <input type="hidden" name="holdingId" value={h.id} />
+                    <button className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs dark:border-zinc-700">
+                      退出（全额退回）
+                    </button>
+                  </form>
+                  <form action={resell} className="flex items-center gap-2">
+                    <input type="hidden" name="holdingId" value={h.id} />
+                    <input
+                      name="recipientEmail"
+                      type="email"
+                      placeholder="转卖给（邮箱）"
+                      required
+                      className="rounded border border-zinc-300 p-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    />
+                    <input
+                      name="price"
+                      type="number"
+                      min={1}
+                      placeholder="价格"
+                      required
+                      className="w-20 rounded border border-zinc-300 p-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    />
+                    <button className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs dark:border-zinc-700">
+                      转卖
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-zinc-500">{label}</p>
-      <p className="text-lg font-medium">{value}</p>
+      <p className="truncate text-lg font-medium" title={value}>
+        {value}
+      </p>
     </div>
   );
 }

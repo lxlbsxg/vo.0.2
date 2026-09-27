@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getCurrentAccount } from "@/lib/actions/auth";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,7 +27,9 @@ const NAV_LINKS = [
   { href: "/register", label: "注册" },
 ];
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const account = await getCurrentAccount();
+
   return (
     <html
       lang="zh"
@@ -44,6 +47,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {link.label}
               </Link>
             ))}
+            <span className="ml-auto text-xs text-zinc-500">
+              {account ? (
+                <>
+                  {account.name || account.email} · {account.points} 积分
+                  {account.person.isReviewer ? " · 审核员" : ""}
+                </>
+              ) : (
+                <Link href="/register" className="hover:text-black dark:hover:text-white">
+                  未登录，去注册
+                </Link>
+              )}
+            </span>
           </nav>
         </header>
         <div className="flex flex-1 flex-col">{children}</div>
